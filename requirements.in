@@ -1,0 +1,8 @@
+aiogram
+pydantic-settings
+SQLAlchemy
+greenlet  # required by SQLAlchemy async (asyncio) support; listed explicitly instead of the sqlalchemy[asyncio] extra
+asyncpg
+alembic
+redis
+structlog
