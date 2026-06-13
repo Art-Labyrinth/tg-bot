@@ -10,7 +10,7 @@ from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.config import get_settings
+from app.config import settings
 from app.db.base import Base
 import app.db.models  # noqa: F401  (registers models on Base.metadata)
 
@@ -20,7 +20,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=get_settings().postgres_dsn,
+        url=settings.postgres_dsn,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -36,7 +36,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    engine = create_async_engine(get_settings().postgres_dsn)
+    engine = create_async_engine(settings.postgres_dsn)
     async with engine.connect() as connection:
         await connection.run_sync(do_run_migrations)
     await engine.dispose()

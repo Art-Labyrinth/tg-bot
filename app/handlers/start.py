@@ -5,6 +5,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 
 from app.db.models.user import User
+from app.i18n import t
 
 router = Router(name="start")
 log = structlog.get_logger()
@@ -14,7 +15,4 @@ log = structlog.get_logger()
 async def cmd_start(message: Message, user: User) -> None:
     # `user` is injected by UserMiddleware: already loaded/registered and not banned.
     log.info("start_command", telegram_id=user.telegram_id)
-    await message.answer(
-        f"Привет, {user.first_name}! 👋\n"
-        "Я пока умею немного, но скоро научусь общаться по-настоящему."
-    )
+    await message.answer(t("start", user.locale).format(name=user.first_name))

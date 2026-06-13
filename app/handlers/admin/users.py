@@ -13,10 +13,10 @@ import structlog
 from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+from app.config import settings
 from app.db.repositories.user import UserRepository
 from app.keyboards.admin import UsersPageCB, build_users_pagination
 
@@ -49,7 +49,7 @@ def _format_users_page(
 
 async def _render_users(
     session: AsyncSession, *, page: int, query: str | None
-) -> tuple[str, object]:
+) -> tuple[str, InlineKeyboardMarkup]:
     repo = UserRepository(session)
     users, total = await repo.list_page(
         offset=page * PAGE_SIZE, limit=PAGE_SIZE, name_query=query
@@ -103,7 +103,7 @@ async def cmd_ban(
     if target_id is None:
         await message.answer("Использование: /ban <telegram_id>")
         return
-    if target_id == get_settings().admin_id:
+    if target_id == settings.admin_id:
         await message.answer("Нельзя забанить главного администратора.")
         return
 

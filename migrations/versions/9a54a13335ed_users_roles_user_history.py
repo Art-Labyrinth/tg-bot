@@ -1,8 +1,8 @@
 """users, roles, user_history
 
-Revision ID: bc42c62f5452
+Revision ID: 9a54a13335ed
 Revises: 
-Create Date: 2026-06-13 16:16:16.111009
+Create Date: 2026-06-13 16:41:55.919292
 """
 from typing import Sequence, Union
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = 'bc42c62f5452'
+revision: str = '9a54a13335ed'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -32,6 +32,7 @@ def upgrade() -> None:
     sa.Column('username', sa.String(length=32), nullable=True),
     sa.Column('first_name', sa.String(length=64), nullable=True),
     sa.Column('language_code', sa.String(length=8), nullable=True),
+    sa.Column('locale', sa.String(length=8), server_default='en', nullable=False),
     sa.Column('is_banned', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.Column('role_id', sa.Integer(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),

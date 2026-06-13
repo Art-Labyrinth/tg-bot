@@ -4,7 +4,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from app.config import get_settings
+from app.config import settings
 from app.db.session import create_engine, create_session_factory
 from app.handlers import get_main_router
 from app.middlewares.database import DatabaseMiddleware
@@ -15,8 +15,6 @@ log = structlog.get_logger()
 
 
 async def run() -> None:
-    settings = get_settings()
-
     # --- Infrastructure ---
     redis = create_redis()
     storage = create_storage(redis)
@@ -25,7 +23,7 @@ async def run() -> None:
 
     # --- Bot & Dispatcher ---
     bot = Bot(
-        token=settings.bot_token,
+        token=settings.bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher(storage=storage)
@@ -45,7 +43,8 @@ async def run() -> None:
     try:
         log.info("bot_starting")
         # Drop updates accumulated while the bot was offline instead of replaying them.
-        await bot.delete_webhook(drop_pending_updates=True)
+        # await bot.delete_webhook(drop_pending_updates=True)
+        await bot.send_message(settings.admin_id, "Bot starting")
         await dp.start_polling(bot)
     finally:
         log.info("bot_stopping")

@@ -7,11 +7,11 @@ role-based admins later, extend __call__ to also check the user's role.
 from aiogram.filters import BaseFilter
 from aiogram.types import CallbackQuery, Message
 
-from app.config import get_settings
+from app.config import settings
 
 
 class IsAdmin(BaseFilter):
     async def __call__(self, event: Message | CallbackQuery) -> bool:
         if event.from_user is None:
             return False
-        return event.from_user.id == get_settings().admin_id
+        return event.from_user.id == settings.admin_id

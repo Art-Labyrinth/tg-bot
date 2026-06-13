@@ -19,7 +19,11 @@ class User(Base, TimestampMixin):
 
     username: Mapped[str | None] = mapped_column(String(32))
     first_name: Mapped[str | None] = mapped_column(String(64))
+    # Raw language_code as reported by Telegram (kept for reference/history).
     language_code: Mapped[str | None] = mapped_column(String(8))
+    # Our normalized UI locale (one of i18n.SUPPORTED_LOCALES). Drives
+    # localization; derived from language_code at registration, defaults to "en".
+    locale: Mapped[str] = mapped_column(String(8), default="en", server_default="en")
 
     # Checked in middleware: banned users never reach the handlers.
     is_banned: Mapped[bool] = mapped_column(default=False, server_default=false())

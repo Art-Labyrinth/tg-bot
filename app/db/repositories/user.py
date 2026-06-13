@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.user import User
 from app.db.models.user_history import UserEvent
 from app.db.repositories.user_history import UserHistoryRepository
+from app.i18n import resolve_locale
 
 
 class UserRepository:
@@ -44,11 +45,14 @@ class UserRepository:
         if user is not None:
             return user
 
+        # Normalize Telegram's language_code to one of our supported locales.
+        locale = resolve_locale(language_code)
         user = User(
             telegram_id=telegram_id,
             username=username,
             first_name=first_name,
             language_code=language_code,
+            locale=locale,
         )
         self.session.add(user)
         # Flush so the users row exists before the history FK references it.
@@ -61,6 +65,7 @@ class UserRepository:
                 "username": username,
                 "first_name": first_name,
                 "language_code": language_code,
+                "locale": locale,
             },
         )
         await self.session.flush()
@@ -109,4 +114,11 @@ class UserRepository:
         user = await self.session.get(User, telegram_id)
         if user is not None:
             user.role_id = role_id
+        return user
+
+    async def set_locale(self, telegram_id: int, locale: str) -> User | None:
+        """Set the user's UI locale. Returns None if the user does not exist."""
+        user = await self.session.get(User, telegram_id)
+        if user is not None:
+            user.locale = locale
         return user

@@ -1,21 +1,18 @@
-# Local development stack. For deployment see deploy/main and deploy/dev.
-# Values come from .env (compose auto-reads it for ${...} substitution).
+# Staging (dev) stack. Run from the repo root, e.g.:
+#   docker compose -f deploy/dev/docker-compose.yml up --build -d
+
+name: tgbot-dev
 
 services:
   bot:
-    build: .
+    build:
+      context: ../..
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       ADMIN_ID: ${ADMIN_ID}
-      DEBUG: ${DEBUG}
-    # Mount source read-only for local development: edit on the host, then
-    # `docker compose restart bot` to pick changes up. :ro guards against the
-    # container writing back into your working tree.
-    volumes:
-      - ./app:/app/app:ro
-      - ./migrations:/app/migrations:ro
-      - ./alembic.ini:/app/alembic.ini:ro
+      DEBUG: "false"
     depends_on:
       postgres:
         condition: service_healthy
