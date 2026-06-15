@@ -22,6 +22,7 @@ from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
     InputMediaPhoto,
+    MediaUnion,
     Message,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -165,19 +166,25 @@ async def on_confirm(
     session: AsyncSession,
     ticket_service: TicketService,
 ) -> None:
+    message = callback.message
+    if message is None:
+        # The originating message is gone (too old) — can't post tickets back.
+        await callback.answer("Сообщение недоступно, начните заново.", show_alert=True)
+        return
+
     data = await state.get_data()
     requests = _from_state(data["requests"])
     prefix = get_prefix(data["ticket_type"])
     await state.clear()
     await callback.answer()
 
-    status = callback.message if isinstance(callback.message, Message) else None
+    status = message if isinstance(message, Message) else None
     if status is not None:
         await status.edit_text("Генерирую билеты…")
 
     await _generate_and_send(
         bot=bot,
-        chat_id=callback.message.chat.id,
+        chat_id=message.chat.id,
         service=ticket_service,
         session=session,
         coordinator_id=user.telegram_id,
@@ -262,7 +269,9 @@ async def _send_albums(bot: Bot, chat_id: int, tickets: list[Ticket]) -> None:
                 )
             )
         else:
-            media = [
+            # Declare the wider element type so the list is `list[MediaUnion]`
+            # (list is invariant — a `list[InputMediaPhoto]` won't satisfy it).
+            media: list[MediaUnion] = [
                 InputMediaPhoto(
                     media=BufferedInputFile(t.image_png, filename=f"{t.ticket_id}.png"),
                     caption=t.ticket_id,
