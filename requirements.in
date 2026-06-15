@@ -6,3 +6,4 @@ asyncpg
 alembic
 redis
 structlog
+httpx  # async HTTP client for the ticket microservice

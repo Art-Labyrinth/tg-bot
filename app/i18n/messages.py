@@ -12,19 +12,49 @@ from app.i18n.locale import DEFAULT_LOCALE, Locale
 MESSAGES: dict[str, dict[Locale, str]] = {
     "start": {
         Locale.ru: (
-            "Привет, {name}! 👋\n"
-            "Я пока умею немного, но скоро научусь общаться по-настоящему.\n\n"
-            "Сменить язык: /lang"
+            "<b>18–21 июня 2026</b>\n"
+            "15-й фестиваль Art Labyrinth\n"
+            "<i>Art-Labyrinth · Pulse of the Earth</i>\n\n"
+            "#экологичность #вегетарианство #альтернативная_культура #творчество "
+            "#самовыражение #музыка #осознанность #комьюнити #без_алкоголя "
+            "#ненасилие #уважение\n\n"
+            "📍 Сокола, Шолданешты\n"
+            "📞 +37367496787"
         ),
         Locale.en: (
-            "Hi, {name}! 👋\n"
-            "I can't do much yet, but soon I'll learn to really chat.\n\n"
-            "Change language: /lang"
+            "<b>18–21 June 2026</b>\n"
+            "15th Art Labyrinth festival\n"
+            "<i>Art-Labyrinth · Pulse of the Earth</i>\n\n"
+            "#sustainability #vegetarianism #alternative_culture #creativity "
+            "#self_expression #music #mindfulness #community #alcohol_free "
+            "#nonviolence #respect\n\n"
+            "📍 Socola, Șoldănești\n"
+            "📞 +37367496787"
         ),
         Locale.ro: (
-            "Salut, {name}! 👋\n"
-            "Deocamdată pot puține, dar în curând voi învăța să conversez cu adevărat.\n\n"
-            "Schimbă limba: /lang"
+            "<b>18–21 iunie 2026</b>\n"
+            "Al 15-lea festival Art Labyrinth\n"
+            "<i>Art-Labyrinth · Pulse of the Earth</i>\n\n"
+            "#sustenabilitate #vegetarianism #cultură_alternativă #creativitate "
+            "#auto_exprimare #muzică #mindfulness #comunitate #fără_alcool "
+            "#nonviolență #respect\n\n"
+            "📍 Socola, Șoldănești\n"
+            "📞 +37367496787"
+        ),
+    },
+    # Shown after the festival ends — just point to the website.
+    "after_festival": {
+        Locale.ru: (
+            "ℹ️ Подробная информация о фестивале Art Labyrinth — на сайте:\n"
+            "https://fest.art-labyrinth.org/"
+        ),
+        Locale.en: (
+            "ℹ️ Full information about the Art Labyrinth festival is on the site:\n"
+            "https://fest.art-labyrinth.org/"
+        ),
+        Locale.ro: (
+            "ℹ️ Informații complete despre festivalul Art Labyrinth — pe site:\n"
+            "https://fest.art-labyrinth.org/"
         ),
     },
     "lang.prompt": {

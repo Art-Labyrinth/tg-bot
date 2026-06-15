@@ -13,6 +13,7 @@ services:
       BOT_TOKEN: ${BOT_TOKEN}
       ADMIN_ID: ${ADMIN_ID}
       DEBUG: "false"
+      TICKET_SERVICE: http://art-lab-backend:8000
     depends_on:
       postgres:
         condition: service_healthy

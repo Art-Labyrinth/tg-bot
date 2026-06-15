@@ -7,6 +7,7 @@ from aiogram import Router
 
 from app.handlers import echo, language, start
 from app.handlers.admin import get_admin_router
+from app.handlers.coordinator import get_coordinator_router
 
 
 def get_main_router() -> Router:
@@ -16,5 +17,6 @@ def get_main_router() -> Router:
     router.include_router(start.router)
     router.include_router(language.router)
     router.include_router(get_admin_router())
+    router.include_router(get_coordinator_router())
     router.include_router(echo.router)
     return router

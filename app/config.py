@@ -4,10 +4,8 @@ All settings are read from environment variables (or a local .env file).
 pydantic-settings validates them on startup: if BOT_TOKEN is missing we fail
 immediately with a clear error, instead of somewhere mid-flow.
 """
-from functools import lru_cache
-
 from pydantic import SecretStr, computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -15,6 +13,8 @@ class Settings(BaseSettings):
     bot_token: SecretStr = SecretStr("")
     # Telegram id of the root administrator (bootstrap superuser, see filters/admin.py).
     admin_id: int = 0
+
+    ticket_service: str = ""
 
     # --- Postgres ---
     postgres_host: str = "postgres"

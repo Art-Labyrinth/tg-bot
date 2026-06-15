@@ -9,13 +9,16 @@ services:
       BOT_TOKEN: ${BOT_TOKEN}
       ADMIN_ID: ${ADMIN_ID}
       DEBUG: ${DEBUG}
+      TICKET_SERVICE: http://art-lab-backend:8000
     # Mount source read-only for local development: edit on the host, then
     # `docker compose restart bot` to pick changes up. :ro guards against the
     # container writing back into your working tree.
     volumes:
       - ./app:/app/app:ro
-      - ./migrations:/app/migrations:ro
       - ./alembic.ini:/app/alembic.ini:ro
+      # migrations is writable on purpose: it's where `alembic revision` writes
+      # generated files. Source code above stays read-only.
+      - ./migrations:/app/migrations
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,6 +50,18 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:7.7
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    ports:
+      - "8080:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pg_data:

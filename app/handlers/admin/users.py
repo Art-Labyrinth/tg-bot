@@ -18,7 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.repositories.user import UserRepository
-from app.keyboards.admin import UsersPageCB, build_users_pagination
+from app.keyboards.admin import (
+    UserManageCB,
+    UsersPageCB,
+    build_role_keyboard,
+    build_users_keyboard,
+)
+from app.roles import role_label
 
 router = Router(name="admin_users")
 log = structlog.get_logger()
@@ -41,7 +47,7 @@ def _format_users_page(
     for u in users:
         name = u.first_name or "—"
         username = f"@{u.username}" if u.username else "—"
-        role = u.role.name if u.role else "—"
+        role = role_label(u.role)
         flags = " 🚫" if u.is_banned else ""
         lines.append(f"{u.telegram_id} | {name} | {username} | {role}{flags}")
     return header + "\n" + "\n".join(lines)
@@ -56,7 +62,7 @@ async def _render_users(
     )
     total_pages = max(1, ceil(total / PAGE_SIZE))
     text = _format_users_page(users, page, total_pages, total, query)
-    keyboard = build_users_pagination(page, total_pages)
+    keyboard = build_users_keyboard(users, page, total_pages)
     return text, keyboard
 
 
@@ -89,6 +95,31 @@ async def cb_users_page(
     await callback.answer()
 
 
+@router.callback_query(UserManageCB.filter())
+async def cb_user_manage(
+    callback: CallbackQuery, callback_data: UserManageCB, session: AsyncSession
+) -> None:
+    """Tap a user → show their current role + role-assign buttons."""
+    user = await UserRepository(session).get(callback_data.telegram_id)
+    if user is None:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+    name = user.first_name or "—"
+    username = f"@{user.username}" if user.username else "—"
+    text = (
+        f"{user.telegram_id} | {name} | {username}\n"
+        f"Роль сейчас: {role_label(user.role)}"
+    )
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            text,
+            reply_markup=build_role_keyboard(
+                user.telegram_id, back_to_page=callback_data.page
+            ),
+        )
+    await callback.answer()
+
+
 def _parse_target_id(args: str | None) -> int | None:
     if args and args.strip().lstrip("-").isdigit():
         return int(args.strip())
@@ -101,7 +132,7 @@ async def cmd_ban(
 ) -> None:
     target_id = _parse_target_id(command.args)
     if target_id is None:
-        await message.answer("Использование: /ban <telegram_id>")
+        await message.answer("Использование: <code>/ban &lt;telegram_id&gt;</code>")
         return
     if target_id == settings.admin_id:
         await message.answer("Нельзя забанить главного администратора.")
@@ -122,7 +153,7 @@ async def cmd_unban(
 ) -> None:
     target_id = _parse_target_id(command.args)
     if target_id is None:
-        await message.answer("Использование: /unban <telegram_id>")
+        await message.answer("Использование: <code>/unban &lt;telegram_id&gt;</code>")
         return
 
     user = await UserRepository(session).set_banned(target_id, False)
