@@ -47,5 +47,20 @@ class Settings(BaseSettings):
     def redis_dsn(self) -> str:
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
+    def missing_required(self) -> list[str]:
+        """Names of required settings that are unset (checked at startup).
+
+        An empty BOT_TOKEN makes Telegram answer every call with Unauthorized,
+        and a zero ADMIN_ID disables all admin features — both usually mean the
+        environment wasn't injected (e.g. compose substituted a blank ${VAR}).
+        Failing loudly at boot beats crashing deep inside the first API call.
+        """
+        missing: list[str] = []
+        if not self.bot_token.get_secret_value():
+            missing.append("BOT_TOKEN")
+        if not self.admin_id:
+            missing.append("ADMIN_ID")
+        return missing
+
 
 settings = Settings()
