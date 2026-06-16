@@ -21,6 +21,10 @@ services:
       redis:
         condition: service_healthy
 
+    networks:
+      - main
+      - bridge
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -36,6 +40,11 @@ services:
       timeout: 3s
       retries: 5
 
+    networks:
+      bridge:
+        aliases:
+          - tgbot-postgres
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -47,6 +56,16 @@ services:
       timeout: 3s
       retries: 5
 
+    networks:
+      bridge:
+        aliases:
+          - tgbot-redis
+
 volumes:
   pg_data:
   redis_data:
+
+networks:
+  main:
+    external: true
+  bridge:
