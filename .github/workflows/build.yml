@@ -1,0 +1,21 @@
+name: Self-Hosted Runner Workflow
+
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+    deploy-main:
+        if: github.ref == 'refs/heads/main'
+        runs-on: [self-hosted]
+        steps:
+            - uses: actions/checkout@v4
+            - name: Build and Deploy Services
+              env:
+                BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+                ADMIN_ID: ${{ secrets.ADMIN_ID }}
+                BOT_API_SECRET: ${{ secrets.BOT_API_SECRET }}
+              run: |
+                  docker compose -f ./deploy/prod/docker-compose.yml up --build -d
+

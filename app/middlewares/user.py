@@ -17,11 +17,15 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, User as TgUser
 
 from app.db.repositories.user import UserRepository
+from app.services.notifications import NewUserNotifier
 
 log = structlog.get_logger()
 
 
 class UserMiddleware(BaseMiddleware):
+    def __init__(self, notifier: NewUserNotifier) -> None:
+        self._notifier = notifier
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
@@ -35,7 +39,7 @@ class UserMiddleware(BaseMiddleware):
 
         session = data["session"]
         users = UserRepository(session)
-        user = await users.get_or_create(
+        user, created = await users.get_or_create(
             telegram_id=tg_user.id,
             username=tg_user.username,
             first_name=tg_user.first_name,
@@ -44,6 +48,15 @@ class UserMiddleware(BaseMiddleware):
         # Persist registration (and its audit entry) before the handler runs,
         # so a new user is recorded even if the handler later fails.
         await session.commit()
+
+        if created:
+            # Queue an admin notification; never let it break update handling.
+            try:
+                await self._notifier.enqueue(
+                    user.telegram_id, user.username, user.first_name
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("notify_enqueue_failed", error=str(exc))
 
         if user.is_banned:
             log.info("dropped_banned_user", telegram_id=user.telegram_id)

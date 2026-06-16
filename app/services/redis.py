@@ -7,11 +7,10 @@ steps, etc.). Redis survives bot restarts and is shared across replicas.
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio import Redis
 
-from app.config import get_settings
+from app.config import settings
 
 
 def create_redis() -> Redis:
-    settings = get_settings()
     return Redis(
         host=settings.redis_host,
         port=settings.redis_port,

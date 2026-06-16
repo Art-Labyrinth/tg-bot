@@ -10,11 +10,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.config import get_settings
+from app.config import settings
 
 
 def create_engine() -> AsyncEngine:
-    settings = get_settings()
     return create_async_engine(
         settings.postgres_dsn,
         echo=settings.debug,   # log SQL statements in DEBUG mode

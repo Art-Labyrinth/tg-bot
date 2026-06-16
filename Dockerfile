@@ -11,8 +11,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Application code
-COPY . .
+# Copy only what the app needs — explicitly, so nothing else (like .env, .venv
+# or deploy/) can ever slip into the image, even if .dockerignore is misconfigured.
+COPY app ./app
+COPY migrations ./migrations
+COPY alembic.ini ./
+COPY start.sh ./
+RUN chmod +x start.sh
 
-# Run the package: python -m app
-CMD ["python", "-m", "app"]
+# Entrypoint: apply migrations, then start the bot (see start.sh)
+CMD ["./start.sh"]

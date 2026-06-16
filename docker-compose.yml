@@ -1,45 +1,58 @@
+# Local development stack. For deployment see deploy/main and deploy/dev.
+# Values come from .env (compose auto-reads it for ${...} substitution).
+
 services:
   bot:
     build: .
     restart: unless-stopped
-    # No env_file: secrets/config are injected by GitHub CI/CD. Internal
-    # hostnames/ports are fixed here; ${...} values are substituted from the
-    # environment the pipeline runs `docker compose` in.
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       ADMIN_ID: ${ADMIN_ID}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
       DEBUG: ${DEBUG}
+      TICKET_SERVICE: http://art-lab-backend:8000
+      BOT_API_SECRET: ${BOT_API_SECRET}
+      # Unique hostnames so DB/Redis don't collide with same-named services on
+      # the external `main` network (the backend stack also has a `postgres`).
+      POSTGRES_HOST: tgbot-postgres
+      REDIS_HOST: tgbot-redis
+    # Mount source read-only for local development: edit on the host, then
+    # `docker compose restart bot` to pick changes up. :ro guards against the
+    # container writing back into your working tree.
+    volumes:
+      - ./app:/app/app:ro
+      - ./alembic.ini:/app/alembic.ini:ro
+      # migrations is writable on purpose: it's where `alembic revision` writes
+      # generated files. Source code above stays read-only.
+      - ./migrations:/app/migrations
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
+    networks:
+      - main
+      - bridge
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: tgbot
+      POSTGRES_USER: tgbot
+      POSTGRES_PASSWORD: tgbot
     volumes:
       - pg_data:/var/lib/postgresql/data
-    # Exposed port — handy for connecting with a local client; can be removed in prod.
-    ports:
-      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U tgbot -d tgbot"]
       interval: 5s
       timeout: 3s
       retries: 5
+
+    networks:
+      bridge:
+        aliases:
+          - tgbot-postgres
 
   redis:
     image: redis:7-alpine
@@ -52,6 +65,31 @@ services:
       timeout: 3s
       retries: 5
 
+    networks:
+      bridge:
+        aliases:
+          - tgbot-redis
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: gleep4711@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: xd9L@FyHew73DkK5tDG8za2w39pGu%E$
+    ports:
+      - "127.0.0.1:5051:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - bridge
+
 volumes:
   pg_data:
   redis_data:
+
+networks:
+  main:
+    external: true
+  bridge:

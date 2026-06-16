@@ -6,12 +6,11 @@ the process down gracefully via KeyboardInterrupt.
 import asyncio
 
 from app.bot import run
-from app.config import get_settings
+from app.config import settings
 from app.logging_config import setup_logging
 
 
 def main() -> None:
-    settings = get_settings()
     setup_logging(debug=settings.debug)
     try:
         asyncio.run(run())

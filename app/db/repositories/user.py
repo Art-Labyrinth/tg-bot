@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.user import User
 from app.db.models.user_history import UserEvent
 from app.db.repositories.user_history import UserHistoryRepository
+from app.i18n import resolve_locale
+from app.roles import Role
 
 
 class UserRepository:
@@ -28,27 +30,31 @@ class UserRepository:
         username: str | None,
         first_name: str | None,
         language_code: str | None,
-    ) -> User:
-        """Return the existing user, or create and register a new one.
+    ) -> tuple[User, bool]:
+        """Return (user, created): the existing user, or a freshly registered one.
 
         Policy: an existing user is returned untouched — profile fields coming
         from Telegram are NOT overwritten here. Keeping the data fresh is handled
         elsewhere (see the user_history audit flow), not on the hot path.
 
         For a brand-new user we also record a `registration` event in the audit
-        log with a snapshot of the data at sign-up time.
+        log with a snapshot of the data at sign-up time. `created` lets the caller
+        react to new users (e.g. notify the admin).
 
         Does not commit — the caller owns the transaction.
         """
         user = await self.session.get(User, telegram_id)
         if user is not None:
-            return user
+            return user, False
 
+        # Normalize Telegram's language_code to one of our supported locales.
+        locale = resolve_locale(language_code)
         user = User(
             telegram_id=telegram_id,
             username=username,
             first_name=first_name,
             language_code=language_code,
+            locale=locale,
         )
         self.session.add(user)
         # Flush so the users row exists before the history FK references it.
@@ -61,10 +67,11 @@ class UserRepository:
                 "username": username,
                 "first_name": first_name,
                 "language_code": language_code,
+                "locale": locale,
             },
         )
         await self.session.flush()
-        return user
+        return user, True
 
     async def list_page(
         self,
@@ -104,9 +111,16 @@ class UserRepository:
             user.is_banned = banned
         return user
 
-    async def set_role(self, telegram_id: int, role_id: int | None) -> User | None:
-        """Assign a role (or None to clear). Returns None if the user is absent."""
+    async def set_role(self, telegram_id: int, role: Role) -> User | None:
+        """Set the user's role bitmask. Returns None if the user does not exist."""
         user = await self.session.get(User, telegram_id)
         if user is not None:
-            user.role_id = role_id
+            user.role = role
+        return user
+
+    async def set_locale(self, telegram_id: int, locale: str) -> User | None:
+        """Set the user's UI locale. Returns None if the user does not exist."""
+        user = await self.session.get(User, telegram_id)
+        if user is not None:
+            user.locale = locale
         return user
