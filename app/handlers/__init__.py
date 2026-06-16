@@ -7,6 +7,7 @@ from aiogram import Router
 
 from app.handlers import echo, language, start
 from app.handlers.admin import get_admin_router
+from app.handlers.admin import stats as admin_stats
 from app.handlers.coordinator import get_coordinator_router
 
 
@@ -17,6 +18,9 @@ def get_main_router() -> Router:
     router.include_router(start.router)
     router.include_router(language.router)
     router.include_router(get_admin_router())
+    # /stats is broader than the root-only admin router: its own IsAnyAdmin filter
+    # also admits Administrator-role users, so it is included separately.
+    router.include_router(admin_stats.router)
     router.include_router(get_coordinator_router())
     router.include_router(echo.router)
     return router

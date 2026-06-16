@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.user import UserRepository
-from app.handlers.coordinator.menu import coordinator_menu, is_coordinator
+from app.handlers.menus import account_menu
 from app.keyboards.admin import SetRoleCB, build_role_keyboard
 from app.roles import ROLE_NAMES, Role, role_label
 
@@ -66,30 +66,31 @@ async def cb_set_role(
     await session.commit()
     log.info("role_assigned", telegram_id=callback_data.user_id, role=int(role))
 
-    # Let a freshly-minted coordinator know what they can now do.
-    notified = await _notify_coordinator(bot, callback_data.user_id, role)
+    # Let a user who just gained commands (coordinator and/or Administrator) know.
+    menu = account_menu(int(role))
+    notified = await _notify_user(bot, callback_data.user_id, menu)
 
     if isinstance(callback.message, Message):
         text = f"Пользователю {callback_data.user_id} назначена роль: {role_label(role)}."
-        if is_coordinator(int(role)) and not notified:
+        if menu is not None and not notified:
             text += "\n⚠️ Не удалось отправить уведомление (не писал боту?)."
         await callback.message.edit_text(text)
     await callback.answer()
 
 
-async def _notify_coordinator(bot: Bot, user_id: int, role: Role) -> bool:
-    """Send the coordinator menu to a newly assigned coordinator.
+async def _notify_user(bot: Bot, user_id: int, menu: str | None) -> bool:
+    """Push the user's new command menu to them after a role change.
 
-    Returns True if delivered, False if the role is not a coordinator one or the
-    user can't be reached (never started the bot / blocked it).
+    Returns True if delivered, False if the role grants no commands (menu is
+    None) or the user can't be reached (never started the bot / blocked it).
     """
-    if not is_coordinator(int(role)):
+    if menu is None:
         return False
     try:
-        await bot.send_message(user_id, coordinator_menu(int(role)))
+        await bot.send_message(user_id, menu)
         return True
     except TelegramForbiddenError:
-        log.info("coordinator_notify_blocked", telegram_id=user_id)
+        log.info("role_notify_blocked", telegram_id=user_id)
     except Exception as exc:  # noqa: BLE001 — notification must not break assignment
-        log.warning("coordinator_notify_failed", telegram_id=user_id, error=str(exc))
+        log.warning("role_notify_failed", telegram_id=user_id, error=str(exc))
     return False
