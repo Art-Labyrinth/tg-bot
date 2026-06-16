@@ -43,6 +43,7 @@ async def run() -> None:
     # App-wide singletons injected into handlers by name (e.g. `ticket_worker`).
     ticket_worker = TicketWorker(bot, ticket_service, session_factory)
     dp["ticket_worker"] = ticket_worker
+    dp["ticket_service"] = ticket_service
 
     # These run as OUTER middleware (before filtering) so router-level filters
     # like IsCoordinator/HasRole can read data["user"]; an inner middleware would

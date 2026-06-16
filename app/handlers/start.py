@@ -9,7 +9,7 @@ from aiogram.types import Message, ReplyKeyboardRemove
 
 from app.config import settings
 from app.db.models.user import User
-from app.handlers.coordinator.menu import coordinator_menu, is_coordinator
+from app.handlers.menus import account_menu
 from app.i18n import t
 
 router = Router(name="start")
@@ -28,7 +28,8 @@ ADMIN_MENU = (
     "/roles — список ролей\n"
     "<code>/setrole &lt;id&gt;</code> — назначить роль кнопками\n"
     "/ticket — выдать билеты (любой префикс)\n"
-    "<code>/testtickets &lt;N&gt;</code> — тестовые билеты (префикс TEST)"
+    "<code>/testtickets &lt;N&gt;</code> — тестовые билеты (префикс TEST)\n"
+    "/stats — статистика по билетам"
 )
 
 
@@ -43,8 +44,10 @@ async def cmd_start(message: Message, user: User, state: FSMContext) -> None:
     if user.telegram_id == settings.admin_id:
         await message.answer(ADMIN_MENU, reply_markup=kb)
         return
-    if is_coordinator(user.role):
-        await message.answer(coordinator_menu(user.role), reply_markup=kb)
+    # Coordinators and/or Administrator-role users get their command list.
+    menu = account_menu(user.role)
+    if menu is not None:
+        await message.answer(menu, reply_markup=kb)
         return
     message_key = "start" if date.today() <= FESTIVAL_LAST_DAY else "after_festival"
     await message.answer(t(message_key, user.locale), reply_markup=kb)

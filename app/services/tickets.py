@@ -1,8 +1,10 @@
 """Client for the ticket microservice.
 
-Single endpoint: POST {TICKET_SERVICE}/bot/tickets with a payload whose `action`
-selects the operation (create / email / get). We only need ticket_id and the
-rendered PNG (decoded from image_base64) back.
+Issuance goes through POST {TICKET_SERVICE}/bot/tickets with a payload whose
+`action` selects the operation (create / email / get); we get back a ticket_id
+and the rendered PNG (decoded from image_base64). A second endpoint,
+POST /bot/tickets/stats, returns aggregate sales/usage figures. Both are signed
+with the same HMAC scheme.
 """
 import base64
 import json
@@ -16,6 +18,7 @@ from app.helpers.hmac_auth import sign_request
 log = structlog.get_logger()
 
 ENDPOINT = "/bot/tickets"
+STATS_ENDPOINT = "/bot/tickets/stats"
 
 
 class TicketServiceError(Exception):
@@ -30,23 +33,28 @@ class Ticket:
 
 class TicketService:
     def __init__(self, base_url: str, client: httpx.AsyncClient, secret: str) -> None:
-        self._url = base_url.rstrip("/") + ENDPOINT
+        self._base = base_url.rstrip("/")
         self._client = client
         self._secret = secret
 
-    async def _post(self, payload: dict) -> Ticket:
+    async def _request(self, path: str, payload: dict) -> dict:
+        """Sign and POST `payload` to `path`, returning the parsed JSON body."""
         # Serialize once: the very bytes we sign are the bytes we send, so the
         # server recomputes the same HMAC over the raw body it receives.
         body = json.dumps(payload).encode()
         headers = {"Content-Type": "application/json", **sign_request(self._secret, body)}
         try:
-            response = await self._client.post(self._url, content=body, headers=headers)
+            response = await self._client.post(
+                self._base + path, content=body, headers=headers
+            )
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            log.warning("ticket_service_error", action=payload.get("action"), error=str(exc))
+            log.warning("ticket_service_error", endpoint=path, error=str(exc))
             raise TicketServiceError(str(exc)) from exc
+        return response.json()
 
-        data = response.json()
+    async def _post(self, payload: dict) -> Ticket:
+        data = await self._request(ENDPOINT, payload)
         try:
             return Ticket(
                 ticket_id=data["ticket_id"],
@@ -76,3 +84,7 @@ class TicketService:
     async def get(self, *, code: str) -> Ticket:
         """Fetch an existing ticket by its ticket_id."""
         return await self._post({"action": "get", "code": code})
+
+    async def stats(self) -> dict:
+        """Fetch aggregate ticket statistics (sales / sold / usage)."""
+        return await self._request(STATS_ENDPOINT, {})
