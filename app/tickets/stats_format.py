@@ -32,9 +32,15 @@ def _money(value: object) -> str:
         return str(value)
 
 
-def _counts(mapping: dict) -> str:
-    """One-line `key: count · key: count` rendering of a {label: int} dict."""
-    return "\n".join(f"     - {key}: {_int(count)}" for key, count in mapping.items())
+def _counts(mapping: object) -> str:
+    """Render a {label: count} mapping as indented bullet lines.
+
+    Defensive: the service may nest a plain number where we expected a
+    breakdown, so a scalar is rendered directly instead of crashing on .items().
+    """
+    if isinstance(mapping, dict):
+        return "\n".join(f"     - {key}: {_int(count)}" for key, count in mapping.items())
+    return f"     - {_int(mapping)}"
 
 
 def _sales_block(sales: dict) -> list[str]:
@@ -70,8 +76,16 @@ def _sold_block(sold: dict) -> list[str]:
 def _day_lines(title: str, by_day: dict) -> list[str]:
     out = [f"<b>{title}:</b>"]
     for day in sorted(by_day):
-        detail = _counts(by_day[day] or {})
-        out.append(f"  {day}: {detail}" if detail else f"  {day}: —")
+        value = by_day[day]
+        if isinstance(value, dict):
+            if value:
+                out.append(f"  {day}:")
+                out.append(_counts(value))
+            else:
+                out.append(f"  {day}: —")
+        else:
+            # A plain number for the whole day (no per-prefix breakdown).
+            out.append(f"  {day}: {_int(value)}")
     return out
 
 

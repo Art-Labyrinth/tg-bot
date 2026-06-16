@@ -31,5 +31,12 @@ async def cmd_stats(message: Message, ticket_service: TicketService) -> None:
         return
 
     log.info("stats_requested", telegram_id=message.from_user.id if message.from_user else None)
-    for chunk in format_stats(data):
+    try:
+        chunks = format_stats(data)
+    except Exception as exc:  # noqa: BLE001 — unexpected payload shape must not 500 the update
+        log.error("stats_format_failed", error=str(exc), payload=data, exc_info=exc)
+        await message.answer("⚠️ Статистика получена, но её не удалось отобразить.")
+        return
+
+    for chunk in chunks:
         await message.answer(chunk)
