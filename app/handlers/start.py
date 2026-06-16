@@ -27,7 +27,8 @@ ADMIN_MENU = (
     "<code>/unban &lt;id&gt;</code> — разбанить\n"
     "/roles — список ролей\n"
     "<code>/setrole &lt;id&gt;</code> — назначить роль кнопками\n"
-    "/ticket — выдать билеты (любой префикс)"
+    "/ticket — выдать билеты (любой префикс)\n"
+    "<code>/testtickets &lt;N&gt;</code> — тестовые билеты (префикс TEST)"
 )
 
 
