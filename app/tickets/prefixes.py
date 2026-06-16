@@ -1,52 +1,43 @@
-"""Ticket type prefixes and the role -> ticket type mapping.
+"""Ticket prefixes and which ones each coordinator role may issue.
 
-Provisional: the microservice will own the prefix table later. The role mapping
-decides which ticket type a coordinator may issue (category from role).
+Provisional: the microservice will own the prefix table later. A single-role
+coordinator issues exactly one prefix; the combo coordinator (holding both the
+Masters and Volunteers roles) may issue any prefix.
 """
 from app.roles import Role
 
-_PREFIXES = {
-    "basic": "GST",
-    "guest": "GST",
-    "master": "MST",
-    "volunteer": "VLR",
-    "organizer": "ORG",
-    "family": "FML",
-    "friends": "FRD",
-    "discounted": "DSC",
-    "cash": "CSH",
+# Every ticket prefix with its admin-facing name, in display order.
+PREFIX_NAMES: dict[str, str] = {
+    "GST": "Guest",
+    "MST": "Master",
+    "VLR": "Volunteer",
+    "ORG": "Orgs",
+    "FML": "Family",
+    "FRD": "Friends",
+    "CSH": "Cash",
+    "DSC": "Discount",
+}
+ALL_PREFIXES: tuple[str, ...] = tuple(PREFIX_NAMES)
+
+# The single prefix each individual coordinator role may issue.
+ROLE_PREFIX: dict[Role, str] = {
+    Role.MASTERS_COORDINATOR: "MST",
+    Role.VOLUNTEERS_COORDINATOR: "VLR",
 }
 
 
-def get_prefix(ticket_type: str) -> str:
-    """Prefix for a ticket type (defaults to GST for unknown types)."""
-    return _PREFIXES.get(ticket_type.lower(), "GST")
+def available_prefixes(role: int) -> tuple[str, ...]:
+    """Prefixes a coordinator may issue.
 
-
-# Which ticket type each coordinator role issues. The "master" ticket covers
-# masters, musicians, specialists and hosts; "volunteer" covers volunteers.
-ROLE_TICKET_TYPE: dict[Role, str] = {
-    Role.MASTERS_COORDINATOR: "master",
-    Role.VOLUNTEERS_COORDINATOR: "volunteer",
-}
-
-# Human-readable category names (for the combo coordinator's category picker).
-TICKET_TYPE_NAMES: dict[str, str] = {
-    "master": "Мастеров",
-    "volunteer": "Волонтёров",
-}
-
-
-def available_ticket_types(role: int) -> list[str]:
-    """Every ticket type the role may issue (one for a single role, several for combo)."""
-    current = Role(role)
-    return [t for bit, t in ROLE_TICKET_TYPE.items() if bit in current]
-
-
-def ticket_type_for_role(role: int) -> str | None:
-    """The single ticket type a coordinator may issue, or None if ambiguous/none.
-
-    None means the combo coordinator (several types) — the caller asks them to pick.
+    The combo coordinator (both Masters and Volunteers) may issue any prefix;
+    a single-role coordinator is limited to their own.
     """
-    types = available_ticket_types(role)
-    return types[0] if len(types) == 1 else None
+    current = Role(role)
+    if Role.MASTERS_COORDINATOR in current and Role.VOLUNTEERS_COORDINATOR in current:
+        return ALL_PREFIXES
+    return tuple(prefix for bit, prefix in ROLE_PREFIX.items() if bit in current)
+
+
+def prefix_name(prefix: str) -> str:
+    """Admin-facing name for a prefix (falls back to the code itself)."""
+    return PREFIX_NAMES.get(prefix, prefix)

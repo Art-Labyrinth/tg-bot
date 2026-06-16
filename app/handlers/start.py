@@ -4,10 +4,12 @@ from datetime import date
 import structlog
 from aiogram import Router
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
+from aiogram.types import Message, ReplyKeyboardRemove
 
 from app.config import settings
 from app.db.models.user import User
+from app.handlers.coordinator.menu import coordinator_menu, is_coordinator
 from app.i18n import t
 
 router = Router(name="start")
@@ -24,16 +26,24 @@ ADMIN_MENU = (
     "<code>/ban &lt;id&gt;</code> — забанить\n"
     "<code>/unban &lt;id&gt;</code> — разбанить\n"
     "/roles — список ролей\n"
-    "<code>/setrole &lt;id&gt;</code> — назначить роль кнопками"
+    "<code>/setrole &lt;id&gt;</code> — назначить роль кнопками\n"
+    "/ticket — выдать билеты (любой префикс)"
 )
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, user: User) -> None:
+async def cmd_start(message: Message, user: User, state: FSMContext) -> None:
     # `user` is injected by UserMiddleware: already loaded/registered and not banned.
     log.info("start_command", telegram_id=user.telegram_id)
+    # /start is a hard reset: drop any in-progress flow (e.g. the ticket session)
+    # and clear its reply keyboard.
+    await state.clear()
+    kb = ReplyKeyboardRemove()
     if user.telegram_id == settings.admin_id:
-        await message.answer(ADMIN_MENU)
+        await message.answer(ADMIN_MENU, reply_markup=kb)
+        return
+    if is_coordinator(user.role):
+        await message.answer(coordinator_menu(user.role), reply_markup=kb)
         return
     message_key = "start" if date.today() <= FESTIVAL_LAST_DAY else "after_festival"
-    await message.answer(t(message_key, user.locale))
+    await message.answer(t(message_key, user.locale), reply_markup=kb)

@@ -34,6 +34,7 @@ ASSIGNABLE_ROLES: tuple[Role, ...] = (
     Role.MASTERS_COORDINATOR,
     Role.VOLUNTEERS_COORDINATOR,
     Role.MASTERS_AND_VOLUNTEERS_COORDINATOR,
+    Role.ADMIN,  # reserved: assignable, no extra behaviour wired yet
 )
 
 

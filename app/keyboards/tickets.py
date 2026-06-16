@@ -2,20 +2,29 @@
 from collections.abc import Sequence
 
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.tickets.prefixes import TICKET_TYPE_NAMES
+from app.tickets.prefixes import prefix_name
+
+# Reply-keyboard button captions. Taps arrive as plain text, so handlers match
+# these exact strings — keep them in sync with the handlers in coordinator/tickets.
+BTN_CHANGE_PREFIX = "🔁 Сменить префикс"
+BTN_FINISH = "✅ Завершить"
 
 
 class TicketConfirmCB(CallbackData, prefix="tickets"):
     action: str  # "confirm" | "cancel"
 
 
-class TicketCategoryCB(CallbackData, prefix="tcat"):
-    """Category chosen by a combo coordinator before entering the list."""
+class TicketPrefixCB(CallbackData, prefix="tpfx"):
+    """Prefix the coordinator picks before entering the ticket list."""
 
-    ticket_type: str
+    prefix: str
 
 
 def build_confirm_keyboard() -> InlineKeyboardMarkup:
@@ -26,13 +35,31 @@ def build_confirm_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def build_category_keyboard(ticket_types: Sequence[str]) -> InlineKeyboardMarkup:
-    """One button per ticket type the combo coordinator may issue."""
+def build_prefix_keyboard(prefixes: Sequence[str]) -> InlineKeyboardMarkup:
+    """One button per prefix the coordinator may issue (two per row)."""
     builder = InlineKeyboardBuilder()
-    for ticket_type in ticket_types:
+    for prefix in prefixes:
         builder.button(
-            text=TICKET_TYPE_NAMES.get(ticket_type, ticket_type),
-            callback_data=TicketCategoryCB(ticket_type=ticket_type),
+            text=f"{prefix} · {prefix_name(prefix)}",
+            callback_data=TicketPrefixCB(prefix=prefix),
         )
-    builder.adjust(1)
+    builder.adjust(2)
     return builder.as_markup()
+
+
+def build_lines_keyboard(can_change_prefix: bool) -> ReplyKeyboardMarkup:
+    """Reply keyboard shown while waiting for a list: change prefix / finish.
+
+    A reply keyboard (not inline) so it reads as the current chat actions rather
+    than buttons frozen on an old message.
+    """
+    rows = []
+    if can_change_prefix:
+        rows.append([KeyboardButton(text=BTN_CHANGE_PREFIX)])
+    rows.append([KeyboardButton(text=BTN_FINISH)])
+    return ReplyKeyboardMarkup(
+        keyboard=rows,
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Пришлите список…",
+    )

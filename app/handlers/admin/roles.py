@@ -4,12 +4,14 @@
   /setrole <telegram_id> — show role buttons for that user; tapping one assigns it
 """
 import structlog
-from aiogram import Router
+from aiogram import Bot, Router
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.user import UserRepository
+from app.handlers.coordinator.menu import coordinator_menu, is_coordinator
 from app.keyboards.admin import SetRoleCB, build_role_keyboard
 from app.roles import ROLE_NAMES, Role, role_label
 
@@ -50,7 +52,10 @@ async def cmd_setrole(
 
 @router.callback_query(SetRoleCB.filter())
 async def cb_set_role(
-    callback: CallbackQuery, callback_data: SetRoleCB, session: AsyncSession
+    callback: CallbackQuery,
+    callback_data: SetRoleCB,
+    session: AsyncSession,
+    bot: Bot,
 ) -> None:
     role = Role(callback_data.role)
     user = await UserRepository(session).set_role(callback_data.user_id, role)
@@ -60,8 +65,31 @@ async def cb_set_role(
 
     await session.commit()
     log.info("role_assigned", telegram_id=callback_data.user_id, role=int(role))
+
+    # Let a freshly-minted coordinator know what they can now do.
+    notified = await _notify_coordinator(bot, callback_data.user_id, role)
+
     if isinstance(callback.message, Message):
-        await callback.message.edit_text(
-            f"Пользователю {callback_data.user_id} назначена роль: {role_label(role)}."
-        )
+        text = f"Пользователю {callback_data.user_id} назначена роль: {role_label(role)}."
+        if is_coordinator(int(role)) and not notified:
+            text += "\n⚠️ Не удалось отправить уведомление (не писал боту?)."
+        await callback.message.edit_text(text)
     await callback.answer()
+
+
+async def _notify_coordinator(bot: Bot, user_id: int, role: Role) -> bool:
+    """Send the coordinator menu to a newly assigned coordinator.
+
+    Returns True if delivered, False if the role is not a coordinator one or the
+    user can't be reached (never started the bot / blocked it).
+    """
+    if not is_coordinator(int(role)):
+        return False
+    try:
+        await bot.send_message(user_id, coordinator_menu(int(role)))
+        return True
+    except TelegramForbiddenError:
+        log.info("coordinator_notify_blocked", telegram_id=user_id)
+    except Exception as exc:  # noqa: BLE001 — notification must not break assignment
+        log.warning("coordinator_notify_failed", telegram_id=user_id, error=str(exc))
+    return False

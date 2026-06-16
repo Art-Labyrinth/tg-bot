@@ -5,10 +5,13 @@ selects the operation (create / email / get). We only need ticket_id and the
 rendered PNG (decoded from image_base64) back.
 """
 import base64
+import json
 from dataclasses import dataclass
 
 import httpx
 import structlog
+
+from app.helpers.hmac_auth import sign_request
 
 log = structlog.get_logger()
 
@@ -26,13 +29,18 @@ class Ticket:
 
 
 class TicketService:
-    def __init__(self, base_url: str, client: httpx.AsyncClient) -> None:
+    def __init__(self, base_url: str, client: httpx.AsyncClient, secret: str) -> None:
         self._url = base_url.rstrip("/") + ENDPOINT
         self._client = client
+        self._secret = secret
 
     async def _post(self, payload: dict) -> Ticket:
+        # Serialize once: the very bytes we sign are the bytes we send, so the
+        # server recomputes the same HMAC over the raw body it receives.
+        body = json.dumps(payload).encode()
+        headers = {"Content-Type": "application/json", **sign_request(self._secret, body)}
         try:
-            response = await self._client.post(self._url, json=payload)
+            response = await self._client.post(self._url, content=body, headers=headers)
             response.raise_for_status()
         except httpx.HTTPError as exc:
             log.warning("ticket_service_error", action=payload.get("action"), error=str(exc))

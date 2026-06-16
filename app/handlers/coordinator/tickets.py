@@ -1,49 +1,37 @@
 """/ticket — coordinators issue tickets from a free-text list.
 
-Flow: /ticket -> send the list -> preview with Confirm/Cancel -> on confirm,
-generate via the ticket microservice, log every issued ticket, and post the PNGs
-to the chat (email tickets are additionally sent by the service). The parsed
-batch lives in FSM data between the list and the confirmation.
+Flow: /ticket -> pick a prefix -> send the list -> preview with Confirm/Cancel.
+On confirm the batch is handed to the TicketWorker, which generates tickets via
+the microservice one at a time (rate-limited), logs each issued ticket and posts
+the PNGs to the chat. Submitting a new list while one is running just queues it.
 
-Telegram flood limits are handled by retrying sends on TelegramRetryAfter with
-the server-provided delay (a back-off queue).
+The parsed batch lives in FSM data between the list and the confirmation.
 """
-import asyncio
-from collections.abc import Awaitable, Callable
-from typing import TypeVar
-
 import structlog
-from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (
-    BufferedInputFile,
-    CallbackQuery,
-    InputMediaPhoto,
-    MediaUnion,
-    Message,
-)
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
+from app.config import settings
 from app.db.models.user import User
-from app.db.repositories.issued_ticket import IssuedTicketRepository
 from app.keyboards.tickets import (
-    TicketCategoryCB,
+    BTN_CHANGE_PREFIX,
+    BTN_FINISH,
     TicketConfirmCB,
-    build_category_keyboard,
+    TicketPrefixCB,
     build_confirm_keyboard,
+    build_lines_keyboard,
+    build_prefix_keyboard,
 )
-from app.services.tickets import Ticket, TicketService, TicketServiceError
+from app.services.ticket_queue import TicketJob, TicketWorker
 from app.tickets.models import ParsedBatch, TicketRequest
 from app.tickets.parser import parse
-from app.tickets.prefixes import available_ticket_types, get_prefix
+from app.tickets.prefixes import ALL_PREFIXES, available_prefixes, prefix_name
 
 router = Router(name="coordinator_tickets")
 log = structlog.get_logger()
-
-ALBUM_SIZE = 10        # Telegram media group limit
 
 HELP = (
     "Пришли список: одна строка — один билет.\n"
@@ -54,25 +42,29 @@ HELP = (
     "Пример:\n<code>Иван Петров\nivan@mail.com\nМастера *5</code>"
 )
 
-T = TypeVar("T")
-
 
 class TicketFlow(StatesGroup):
-    choosing_category = State()
+    choosing_prefix = State()
     waiting_lines = State()
     confirming = State()
 
 
 # --- helpers -----------------------------------------------------------------
 
-async def _flood_safe(call: Callable[[], Awaitable[T]]) -> T:
-    """Run a Telegram send, waiting out flood limits instead of failing."""
-    while True:
-        try:
-            return await call()
-        except TelegramRetryAfter as exc:
-            log.warning("telegram_flood_wait", retry_after=exc.retry_after)
-            await asyncio.sleep(exc.retry_after)
+def _prefixes_for(user: User) -> tuple[str, ...]:
+    """Prefixes this user may issue; the root admin may issue any."""
+    if user.telegram_id == settings.admin_id:
+        return ALL_PREFIXES
+    return available_prefixes(user.role)
+
+
+def _can_change_prefix(user: User) -> bool:
+    """True if the user has more than one prefix to switch between."""
+    return len(_prefixes_for(user)) > 1
+
+
+# Hint shown when the coordinator can keep sending more lists.
+NEXT_HINT = "Пришлите следующий список или завершите. 👇"
 
 
 def _errors_block(batch: ParsedBatch) -> str:
@@ -81,14 +73,17 @@ def _errors_block(batch: ParsedBatch) -> str:
     )
 
 
-def _preview_text(batch: ParsedBatch) -> str:
+def _preview_text(batch: ParsedBatch, prefix: str) -> str:
     lines = []
     for idx, req in enumerate(batch.requests, start=1):
         who = req.name or "(без имени)"
         mult = f" ×{req.count}" if req.count > 1 else ""
         dest = f"email {req.email}" if req.email else "в чат"
         lines.append(f"{idx}. {who}{mult} → {dest}")
-    text = f"Будет создано билетов: <b>{batch.total_tickets}</b>\n\n" + "\n".join(lines)
+    text = (
+        f"Префикс: <b>{prefix} · {prefix_name(prefix)}</b>\n"
+        f"Будет создано билетов: <b>{batch.total_tickets}</b>\n\n" + "\n".join(lines)
+    )
     if batch.errors:
         text += "\n\n⚠️ Пропущены строки:\n" + _errors_block(batch)
     return text + "\n\nПодтвердить?"
@@ -106,34 +101,69 @@ def _from_state(data: list[dict]) -> list[TicketRequest]:
 
 @router.message(Command("ticket"))
 async def cmd_ticket(message: Message, user: User, state: FSMContext) -> None:
-    types = available_ticket_types(user.role)
-    if len(types) == 1:
-        await state.update_data(ticket_type=types[0])
-        await state.set_state(TicketFlow.waiting_lines)
-        await message.answer(HELP)
+    prefixes = _prefixes_for(user)
+    if not prefixes:
+        await message.answer("У вас нет прав на выдачу билетов.")
         return
-    # Combo coordinator — pick the category before entering the list.
-    await state.set_state(TicketFlow.choosing_category)
+    if len(prefixes) == 1:
+        # Single-role coordinator — prefix is fixed, go straight to the list.
+        await state.update_data(prefix=prefixes[0])
+        await state.set_state(TicketFlow.waiting_lines)
+        await message.answer(HELP, reply_markup=build_lines_keyboard(can_change_prefix=False))
+        return
+    # Combo coordinator — choose the prefix before entering the list.
+    await state.set_state(TicketFlow.choosing_prefix)
     await message.answer(
-        "Выберите категорию билетов:", reply_markup=build_category_keyboard(types)
+        "Выберите префикс билета:", reply_markup=build_prefix_keyboard(prefixes)
     )
 
 
-@router.callback_query(TicketFlow.choosing_category, TicketCategoryCB.filter())
-async def on_category(
+@router.callback_query(TicketFlow.choosing_prefix, TicketPrefixCB.filter())
+async def on_prefix(
     callback: CallbackQuery,
-    callback_data: TicketCategoryCB,
+    callback_data: TicketPrefixCB,
     user: User,
     state: FSMContext,
 ) -> None:
-    if callback_data.ticket_type not in available_ticket_types(user.role):
-        await callback.answer("Недоступная категория.", show_alert=True)
+    if callback_data.prefix not in _prefixes_for(user):
+        await callback.answer("Недоступный префикс.", show_alert=True)
         return
-    await state.update_data(ticket_type=callback_data.ticket_type)
+    await state.update_data(prefix=callback_data.prefix)
     await state.set_state(TicketFlow.waiting_lines)
     if isinstance(callback.message, Message):
-        await callback.message.edit_text(HELP)
+        # The inline picker can't carry a reply keyboard, so confirm the choice
+        # on it and send the list prompt with the reply keyboard separately.
+        await callback.message.edit_text(
+            f"Префикс: <b>{callback_data.prefix} · {prefix_name(callback_data.prefix)}</b>"
+        )
+        await callback.message.answer(
+            HELP, reply_markup=build_lines_keyboard(_can_change_prefix(user))
+        )
     await callback.answer()
+
+
+# Reply-keyboard controls. Registered before receive_lines and matched by exact
+# text so a tap is never mistaken for a list. State-agnostic: the reply keyboard
+# can linger across states, so the buttons must work wherever they appear.
+
+@router.message(F.text == BTN_FINISH)
+async def on_finish(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer(
+        "Готово. /ticket — начать заново.", reply_markup=ReplyKeyboardRemove()
+    )
+
+
+@router.message(F.text == BTN_CHANGE_PREFIX)
+async def on_change_prefix(message: Message, user: User, state: FSMContext) -> None:
+    prefixes = _prefixes_for(user)
+    if len(prefixes) <= 1:
+        await message.answer("Доступен только один префикс.")
+        return
+    await state.set_state(TicketFlow.choosing_prefix)
+    await message.answer(
+        "Выберите префикс билета:", reply_markup=build_prefix_keyboard(prefixes)
+    )
 
 
 @router.message(TicketFlow.waiting_lines, F.text)
@@ -144,16 +174,21 @@ async def receive_lines(message: Message, state: FSMContext) -> None:
             "Не нашёл ни одной валидной строки.\n\n" + _errors_block(batch)
         )
         return
+    data = await state.get_data()
     await state.update_data(requests=_to_state(batch.requests))
     await state.set_state(TicketFlow.confirming)
-    await message.answer(_preview_text(batch), reply_markup=build_confirm_keyboard())
+    await message.answer(
+        _preview_text(batch, data["prefix"]), reply_markup=build_confirm_keyboard()
+    )
 
 
 @router.callback_query(TicketFlow.confirming, TicketConfirmCB.filter(F.action == "cancel"))
 async def on_cancel(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+    # Drop this batch but keep the coordinator in the flow (same prefix). The
+    # reply keyboard is still at the bottom, so no markup is needed here.
+    await state.set_state(TicketFlow.waiting_lines)
     if isinstance(callback.message, Message):
-        await callback.message.edit_text("Отменено.")
+        await callback.message.edit_text("Список отменён. " + NEXT_HINT)
     await callback.answer()
 
 
@@ -162,120 +197,34 @@ async def on_confirm(
     callback: CallbackQuery,
     state: FSMContext,
     user: User,
-    bot: Bot,
-    session: AsyncSession,
-    ticket_service: TicketService,
+    ticket_worker: TicketWorker,
 ) -> None:
     message = callback.message
     if message is None:
-        # The originating message is gone (too old) — can't post tickets back.
         await callback.answer("Сообщение недоступно, начните заново.", show_alert=True)
         return
 
     data = await state.get_data()
-    requests = _from_state(data["requests"])
-    prefix = get_prefix(data["ticket_type"])
-    await state.clear()
+    job = TicketJob(
+        chat_id=message.chat.id,
+        coordinator_id=user.telegram_id,
+        prefix=data["prefix"],
+        lang=user.locale,
+        requests=_from_state(data["requests"]),
+    )
+    # Keep the coordinator in the flow with the same prefix: they can paste the
+    # next list straight away, no /ticket and no prefix pick. Only "Завершить"
+    # (or /start) clears the state.
+    await state.set_state(TicketFlow.waiting_lines)
     await callback.answer()
 
-    status = message if isinstance(message, Message) else None
-    if status is not None:
-        await status.edit_text("Генерирую билеты…")
-
-    await _generate_and_send(
-        bot=bot,
-        chat_id=message.chat.id,
-        service=ticket_service,
-        session=session,
-        coordinator_id=user.telegram_id,
-        requests=requests,
-        prefix=prefix,
-        lang=user.locale,
-        status=status,
-    )
-
-
-async def _generate_and_send(
-    *,
-    bot: Bot,
-    chat_id: int,
-    service: TicketService,
-    session: AsyncSession,
-    coordinator_id: int,
-    requests: list[TicketRequest],
-    prefix: str,
-    lang: str,
-    status: Message | None,
-) -> None:
-    total = sum(r.count for r in requests)
-    tickets: list[Ticket] = []
-    failures: list[str] = []
-    log_repo = IssuedTicketRepository(session)
-    done = 0
-
-    for req in requests:
-        for _ in range(req.count):
-            try:
-                if req.email:
-                    ticket = await service.email(
-                        email=req.email, name=req.name, prefix=prefix, lang=lang
-                    )
-                else:
-                    ticket = await service.create(name=req.name, prefix=prefix)
-            except TicketServiceError as exc:
-                failures.append(f"{req.name or req.email}: {exc}")
-                done += 1
-                continue
-            tickets.append(ticket)
-            log_repo.record(
-                ticket_id=ticket.ticket_id,
-                coordinator_id=coordinator_id,
-                name=req.name,
-                email=req.email,
-                prefix=prefix,
-                sent_email=req.email is not None,
-            )
-            done += 1
-        if status is not None:
-            try:
-                await status.edit_text(f"Генерирую билеты… {done}/{total}")
-            except Exception:  # noqa: BLE001 — progress edit is best-effort
-                pass
-
-    # Persist the audit log before posting, so issuance is recorded even if a
-    # later Telegram send fails.
-    await session.commit()
-
-    await _send_albums(bot, chat_id, tickets)
-
-    report = f"✅ Готово: {len(tickets)}/{total}."
-    if failures:
-        report += "\n❌ Ошибки:\n" + "\n".join(failures[:20])
-    await _flood_safe(lambda: bot.send_message(chat_id, report))
-    log.info("tickets_issued", coordinator_id=coordinator_id, made=len(tickets), failed=len(failures))
-
-
-async def _send_albums(bot: Bot, chat_id: int, tickets: list[Ticket]) -> None:
-    """Post tickets to the chat as PNGs, grouped into albums of 10."""
-    for start in range(0, len(tickets), ALBUM_SIZE):
-        chunk = tickets[start : start + ALBUM_SIZE]
-        if len(chunk) == 1:
-            ticket = chunk[0]
-            await _flood_safe(
-                lambda t=ticket: bot.send_photo(
-                    chat_id,
-                    BufferedInputFile(t.image_png, filename=f"{t.ticket_id}.png"),
-                    caption=t.ticket_id,
-                )
-            )
-        else:
-            # Declare the wider element type so the list is `list[MediaUnion]`
-            # (list is invariant — a `list[InputMediaPhoto]` won't satisfy it).
-            media: list[MediaUnion] = [
-                InputMediaPhoto(
-                    media=BufferedInputFile(t.image_png, filename=f"{t.ticket_id}.png"),
-                    caption=t.ticket_id,
-                )
-                for t in chunk
-            ]
-            await _flood_safe(lambda m=media: bot.send_media_group(chat_id, m))
+    # Hand off to the serial worker; it owns generation, logging and posting.
+    ahead = ticket_worker.submit(job)
+    if ahead == 0:
+        note = "▶️ Принято, начинаю генерацию…"
+    else:
+        note = f"⏳ Принято. В очереди перед вами: {ahead}."
+    if isinstance(message, Message):
+        # No markup here: edit_text only takes inline; the reply keyboard set
+        # when the flow started stays at the bottom of the chat.
+        await message.edit_text(f"{note}\n\n{NEXT_HINT}")

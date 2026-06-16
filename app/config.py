@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     ticket_service: str = ""
 
+    bot_api_secret: SecretStr = SecretStr("")
+
     # --- Postgres ---
     postgres_host: str = "postgres"
     postgres_port: int = 5432

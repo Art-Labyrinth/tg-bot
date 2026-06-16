@@ -67,6 +67,11 @@ MESSAGES: dict[str, dict[Locale, str]] = {
         Locale.en: "Language switched to English. ✅",
         Locale.ro: "Limba a fost schimbată în română. ✅",
     },
+    "error.unknown": {
+        Locale.ru: "Что-то пошло не так...",
+        Locale.en: "Something went wrong...",
+        Locale.ro: "Ceva a mers prost...",
+    },
 }
 
 

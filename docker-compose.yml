@@ -10,6 +10,11 @@ services:
       ADMIN_ID: ${ADMIN_ID}
       DEBUG: ${DEBUG}
       TICKET_SERVICE: http://art-lab-backend:8000
+      BOT_API_SECRET: ${BOT_API_SECRET}
+      # Unique hostnames so DB/Redis don't collide with same-named services on
+      # the external `main` network (the backend stack also has a `postgres`).
+      POSTGRES_HOST: tgbot-postgres
+      REDIS_HOST: tgbot-redis
     # Mount source read-only for local development: edit on the host, then
     # `docker compose restart bot` to pick changes up. :ro guards against the
     # container writing back into your working tree.
@@ -24,6 +29,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+    networks:
+      - main
+      - bridge
 
   postgres:
     image: postgres:16-alpine
@@ -40,6 +49,11 @@ services:
       timeout: 3s
       retries: 5
 
+    networks:
+      bridge:
+        aliases:
+          - tgbot-postgres
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -50,6 +64,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+    networks:
+      bridge:
+        aliases:
+          - tgbot-redis
 
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -63,6 +82,14 @@ services:
       postgres:
         condition: service_healthy
 
+    networks:
+      - bridge
+
 volumes:
   pg_data:
   redis_data:
+
+networks:
+  main:
+    external: true
+  bridge:
